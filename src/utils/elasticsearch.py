@@ -17,4 +17,4 @@ def save_raw_event(event):
 
 def save_rich_event(event):
     # TODO
-    pass
+    client.index(index=ELASTICSEARCH_RICH_INDEX, document=event)
