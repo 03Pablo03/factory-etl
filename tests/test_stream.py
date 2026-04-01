@@ -1,77 +1,106 @@
-import unittest
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock
+
+import pytest
 from rx import create
-from rx import operators as ops
+
 from src.pipeline.stream import (
+    attributes_mapping,
     build_pipeline,
     machines_mapping,
     properties_mapping,
-    attributes_mapping
 )
 
 
-class TestBuildPipeline(unittest.TestCase):
-    """Unit tests for the build_pipeline function"""
+def test_build_pipeline_processes_single_event():
+    test_event = {
+        "TS": "2025-02-22T10:00:00",
+        "PR": 1,
+        "MC": "FB713A",
+        "PS": {"T3": 30},
+    }
+    expected_event = {
+        "TIMESTAMP": "2025-02-22T10:00:00",
+        "PRODUCT": 1,
+        "MACHINE": "FILLING",
+        "PROPS": {"TIME": 30},
+    }
+    received_events = []
 
-    def test_build_pipeline_processes_single_event(self):
-        """Test that build_pipeline processes a single event correctly"""
-        # Arrange
-        test_event = {
-            "TS": "2025-02-22T10:00:00",
-            "PR": 1,
-            "MC": "FB713A",
-            "PS": {"T3": 30}
-        }
+    def source_observable(observer, _):
+        observer.on_next(test_event)
+        observer.on_completed()
 
-        target_event = {
-            'TIMESTAMP': '2025-02-22T10:00:00',
-            'PRODUCT': 1,
-            'MACHINE': 'FILLING',
-            'PROPS': {'TIME': 30}
-        }
-        
-        received_events = []
-        
-        def source_observable(observer, _):
-            observer.on_next(test_event)
-            observer.on_completed()
-        
-        source = create(source_observable)
-        send_rich_event_mock = Mock()
-        
-        # Act
-        pipeline = build_pipeline(source, send_rich_event_mock)
-        pipeline.subscribe(
-            on_next=lambda x: received_events.append(x),
-            on_error=lambda e: self.fail(f"Pipeline error: {e}")
-        )
-        
-        # TODO
-        pass
+    source = create(source_observable)
+    send_rich_event_mock = Mock()
+    save_raw_event_mock = Mock()
+    save_rich_event_mock = Mock()
 
+    pipeline = build_pipeline(
+        source,
+        send_rich_event_mock,
+        save_raw_event_mock,
+        save_rich_event_mock,
+    )
+    pipeline.subscribe(
+        on_next=received_events.append,
+        on_error=lambda error: pytest.fail(f"Pipeline error: {error}"),
+    )
 
-class TestMappingFunctions(unittest.TestCase):
-    """Unit tests for mapping functions"""
-
-    def test_machines_mapping(self):
-        """Test that machines_mapping returns correct values"""
-        self.assertEqual(machines_mapping("UNS56A"), "UNSCRAMBLER")
-        self.assertEqual(machines_mapping("WS964F"), "WASHER")
-        self.assertEqual(machines_mapping("CPM784"), "CAPPING")
-
-    def test_properties_mapping(self):
-        """Test that properties_mapping returns correct values"""
-        self.assertEqual(properties_mapping("A7"), "LITERS")
-        self.assertEqual(properties_mapping("T3"), "TIME")
-        self.assertEqual(properties_mapping("P6"), "POWER")
-
-    def test_attributes_mapping(self):
-        """Test that attributes_mapping returns correct values"""
-        self.assertEqual(attributes_mapping("TS"), "TIMESTAMP")
-        self.assertEqual(attributes_mapping("MC"), "MACHINE")
-        self.assertEqual(attributes_mapping("PR"), "PRODUCT")
-        self.assertEqual(attributes_mapping("PS"), "PROPS")
+    assert received_events == [expected_event]
+    save_raw_event_mock.assert_called_once_with(test_event)
+    send_rich_event_mock.assert_called_once_with(expected_event)
+    save_rich_event_mock.assert_called_once_with(expected_event)
 
 
-if __name__ == '__main__':
-    unittest.main()
+def test_build_pipeline_filters_unknown_machines():
+    invalid_event = {
+        "TS": "2025-02-22T10:00:00",
+        "PR": 1,
+        "MC": "UNKNOWN",
+        "PS": {"T3": 30},
+    }
+    received_events = []
+
+    def source_observable(observer, _):
+        observer.on_next(invalid_event)
+        observer.on_completed()
+
+    source = create(source_observable)
+    send_rich_event_mock = Mock()
+    save_raw_event_mock = Mock()
+    save_rich_event_mock = Mock()
+
+    pipeline = build_pipeline(
+        source,
+        send_rich_event_mock,
+        save_raw_event_mock,
+        save_rich_event_mock,
+    )
+    pipeline.subscribe(
+        on_next=received_events.append,
+        on_error=lambda error: pytest.fail(f"Pipeline error: {error}"),
+    )
+
+    assert received_events == []
+    save_raw_event_mock.assert_called_once_with(invalid_event)
+    send_rich_event_mock.assert_not_called()
+    save_rich_event_mock.assert_not_called()
+
+
+def test_machines_mapping():
+    assert machines_mapping("UNS56A") == "UNSCRAMBLER"
+    assert machines_mapping("WS964F") == "WASHER"
+    assert machines_mapping("CPM784") == "CAPPING"
+
+
+def test_properties_mapping():
+    assert properties_mapping("A7") == "LITERS"
+    assert properties_mapping("T3") == "TIME"
+    assert properties_mapping("P6") == "POWER"
+
+
+def test_attributes_mapping():
+    assert attributes_mapping("TS") == "TIMESTAMP"
+    assert attributes_mapping("MC") == "MACHINE"
+    assert attributes_mapping("PR") == "PRODUCT"
+    assert attributes_mapping("PS") == "PROPS"
