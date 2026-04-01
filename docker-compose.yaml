@@ -66,6 +66,22 @@ services:
     depends_on:
       - elasticsearch
 
+  processor:
+    build: .
+    container_name: processor
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: factory-simulator-group
+      KAFKA_RAW_TOPIC: events.raw
+      KAFKA_RICH_TOPIC: events.rich
+      ELASTICSEARCH_HOST: http://elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_RAW_INDEX: events.raw
+      ELASTICSEARCH_RICH_INDEX: events.rich
+    depends_on:
+      - kafka
+      - elasticsearch
+
 volumes:
   kafka_data:
   es_data:
